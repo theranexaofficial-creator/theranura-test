@@ -1,0 +1,125 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reset TheraNura Password</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 420px;
+      margin: 60px auto;
+      padding: 20px;
+      color: #172033;
+    }
+    input, button {
+      box-sizing: border-box;
+      width: 100%;
+      padding: 13px;
+      margin: 9px 0;
+      border-radius: 7px;
+      border: 1px solid #bbb;
+    }
+    button {
+      background: #2457d6;
+      color: white;
+      border: 0;
+      font-weight: bold;
+    }
+    #message { margin-top: 15px; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <h2>Reset your TheraNura password</h2>
+  <p>Enter your new password below after opening your recovery email link.</p>
+
+  <input id="projectUrl" placeholder="Supabase Project URL">
+  <input id="anonKey" placeholder="Supabase publishable / anon key">
+  <button id="connect">Connect</button>
+
+  <div id="resetArea" hidden>
+    <input id="password" type="password" placeholder="New password (minimum 12 characters)">
+    <input id="confirmPassword" type="password" placeholder="Confirm new password">
+    <button id="savePassword">Save new password</button>
+  </div>
+
+  <p id="message">Connect using your Supabase project details.</p>
+
+  <script>
+    let supabaseClient;
+
+    const message = document.getElementById("message");
+    const resetArea = document.getElementById("resetArea");
+
+    function show(text) {
+      message.textContent = text;
+    }
+
+    document.getElementById("connect").onclick = async () => {
+      const url = document.getElementById("projectUrl").value.trim();
+      const key = document.getElementById("anonKey").value.trim();
+
+      if (!url || !key) {
+        show("Enter your Supabase project URL and public key.");
+        return;
+      }
+
+      try {
+        supabaseClient = window.supabase.createClient(url, key, {
+          auth: {
+            detectSessionInUrl: true,
+            persistSession: true,
+            autoRefreshToken: true
+          }
+        });
+
+        const { data, error } = await supabaseClient.auth.getSession();
+        if (error) throw error;
+
+        if (data.session) {
+          resetArea.hidden = false;
+          show("Recovery session detected. You can set your new password.");
+        } else {
+          show("Connected, but no recovery session was found. Open a fresh password-reset email link first.");
+        }
+      } catch (error) {
+        show("Connection error: " + error.message);
+      }
+    };
+
+    document.getElementById("savePassword").onclick = async () => {
+      const password = document.getElementById("password").value;
+      const confirm = document.getElementById("confirmPassword").value;
+
+      if (password.length < 12) {
+        show("Password must contain at least 12 characters.");
+        return;
+      }
+
+      if (password !== confirm) {
+        show("The passwords do not match.");
+        return;
+      }
+
+      if (!supabaseClient) {
+        show("Connect to Supabase first.");
+        return;
+      }
+
+      const { error } = await supabaseClient.auth.updateUser({
+        password: password
+      });
+
+      if (error) {
+        show("Password update failed: " + error.message);
+        return;
+      }
+
+      resetArea.hidden = true;
+      show("Password updated successfully. You can now sign in on the main test page.");
+    };
+  </script>
+</body>
+</html>
