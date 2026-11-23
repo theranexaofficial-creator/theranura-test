@@ -1,0 +1,266 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>TheraNura — Temporary Organisation Test</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root { color-scheme: light; font-family: Inter, system-ui, -apple-system, Segoe UI, sans-serif; }
+    body { margin: 0; background: #f4f6fa; color: #182235; }
+    main { max-width: 720px; margin: 28px auto; padding: 0 16px 36px; }
+    .card { background: #fff; border: 1px solid #e1e6ef; border-radius: 14px; padding: 20px; margin: 14px 0; box-shadow: 0 4px 16px rgba(20,35,60,.04); }
+    h1 { font-size: 23px; margin: 0 0 6px; }
+    h2 { font-size: 17px; margin: 0 0 14px; }
+    p, li { line-height: 1.5; color: #536176; }
+    label { display:block; font-weight:600; font-size:13px; margin:12px 0 6px; }
+    input { width:100%; box-sizing:border-box; padding:11px 12px; border:1px solid #cbd4e1; border-radius:8px; font-size:15px; }
+    button { border:0; border-radius:8px; padding:11px 15px; background:#1c4d8c; color:white; font-weight:650; margin:14px 8px 0 0; cursor:pointer; }
+    button.secondary { background:#e8edf5; color:#23334c; }
+    button:disabled { opacity:.55; cursor:wait; }
+    .hint { font-size:12px; color:#68778d; }
+    .status { white-space:pre-wrap; background:#f2f5f9; padding:12px; border-radius:8px; overflow-wrap:anywhere; color:#24334a; }
+    .warning { border-left:4px solid #d69a27; padding:10px 12px; background:#fff8e8; color:#674b17; border-radius:6px; }
+    .success { border-left:4px solid #26865d; padding:10px 12px; background:#eef9f3; color:#1e5d42; }
+    .hidden { display:none; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>TheraNura — Temporary Test Client</h1>
+  <p>Use this page only to test the organisation-creation RPC with your own authenticated account. It is not the TheraNura application.</p>
+
+  <div class="warning">
+    <strong>Security:</strong> Enter only your Supabase Project URL and publishable/anon key. Never enter or share a service-role/secret key. Your password stays in this browser page and is sent directly to Supabase.
+  </div>
+
+  <section class="card">
+    <h2>1. Connect to Supabase</h2>
+    <label for="projectUrl">Supabase Project URL</label>
+    <input id="projectUrl" type="url" placeholder="https://YOUR_PROJECT_REF.supabase.co" autocomplete="url">
+    <label for="anonKey">Publishable key (or legacy anon key)</label>
+    <input id="anonKey" type="password" placeholder="sb_publishable_… or eyJ…" autocomplete="off">
+    <button id="connectBtn">Connect</button>
+    <div id="connectionStatus" class="status" aria-live="polite">Not connected.</div>
+    <p class="hint">Find these in Supabase Dashboard → Project Settings → API. Do not use the secret or service_role key.</p>
+  </section>
+
+  <section id="loginSection" class="card hidden">
+    <h2>2. Sign in to the test account</h2>
+    <label for="email">Email</label>
+    <input id="email" type="email" value="theranura.official@gmail.com" autocomplete="username">
+    <label for="password">Account password</label>
+    <input id="password" type="password" autocomplete="current-password">
+    <button id="loginBtn">Sign in</button>
+    <div id="loginStatus" class="status" aria-live="polite">Not signed in.</div>
+  </section>
+
+  <section id="createSection" class="card hidden">
+    <h2>3. Create the first test organisation</h2>
+    <div id="signedIn" class="success"></div>
+    <label for="orgName">Organisation name</label>
+    <input id="orgName" type="text" maxlength="200" placeholder="TheraNura Test Practice">
+    <label for="orgSlug">Unique slug (3–63 lowercase letters, numbers or hyphens)</label>
+    <input id="orgSlug" type="text" maxlength="63" placeholder="theranura-test-practice">
+    <label for="orgType">Organisation type</label>
+    <input id="orgType" type="text" maxlength="80" placeholder="Professional practice">
+    <label for="orgDescription">Description (optional)</label>
+    <input id="orgDescription" type="text" maxlength="1000" placeholder="Temporary test organisation">
+    <button id="createBtn">Create test organisation</button>
+    <button id="signOutBtn" class="secondary">Sign out</button>
+    <p class="hint">This calls <code>theranura_create_organization</code>. It creates real database records and should be used once for this test.</p>
+    <div id="createStatus" class="status" aria-live="polite">No organisation created.</div>
+  </section>
+
+  <section class="card">
+    <h2>Test guidance</h2>
+    <ol>
+      <li>Connect using the project URL and publishable/anon key.</li>
+      <li>Sign in with the test account. If you do not know its password, use Supabase Authentication → Users to send a password recovery email or set a password through the supported dashboard workflow.</li>
+      <li>Use a clearly labelled test name and a unique slug.</li>
+      <li>Click Create only once. Wait for the result; do not double-click.</li>
+      <li>Share only the success/error message and returned organisation UUID with ChatGPT. Do not share your password or API key.</li>
+    </ol>
+  </section>
+</main>
+
+<script>
+(() => {
+  let supabaseClient = null;
+  const $ = (id) => document.getElementById(id);
+  const show = (id) => $(id).classList.remove('hidden');
+  const hide = (id) => $(id).classList.add('hidden');
+  const setStatus = (id, message) => { $(id).textContent = message; };
+  const setBusy = (button, busy, label) => {
+    $(button).disabled = busy;
+    if (label) $(button).textContent = busy ? 'Please wait…' : label;
+  };
+
+  $('connectBtn').addEventListener('click', async () => {
+    const url = $('projectUrl').value.trim().replace(/\/+$/, '');
+    const key = $('anonKey').value.trim();
+
+    if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(url) || !key) {
+      setStatus('connectionStatus', 'Enter a valid Supabase project URL and publishable/anon key.');
+      return;
+    }
+
+    if (!window.supabase || !window.supabase.createClient) {
+      setStatus('connectionStatus', 'Supabase client library did not load. Check your internet connection and reload this page.');
+      return;
+    }
+
+    setBusy('connectBtn', true);
+
+    try {
+      supabaseClient = window.supabase.createClient(url, key, {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: true
+        }
+      });
+
+      const { data, error } = await supabaseClient.auth.getSession();
+      if (error) throw error;
+
+      setStatus(
+        'connectionStatus',
+        'Connected to Supabase project. ' +
+        (data.session ? 'An existing session was found.' : 'No existing session found.')
+      );
+
+      show('loginSection');
+
+      if (data.session) await updateSignedInState(data.session);
+
+    } catch (e) {
+      supabaseClient = null;
+      setStatus('connectionStatus', 'Connection failed: ' + (e.message || String(e)));
+    } finally {
+      setBusy('connectBtn', false, 'Connect');
+    }
+  });
+
+  async function updateSignedInState(session) {
+    if (!session) {
+      hide('createSection');
+      return;
+    }
+
+    $('signedIn').textContent =
+      'Signed in as ' + (session.user.email || session.user.id) +
+      '. User ID: ' + session.user.id;
+
+    show('createSection');
+    setStatus('loginStatus', 'Signed in successfully.');
+  }
+
+  $('loginBtn').addEventListener('click', async () => {
+    if (!supabaseClient) {
+      return setStatus('loginStatus', 'Connect to Supabase first.');
+    }
+
+    setBusy('loginBtn', true);
+
+    try {
+      const { data, error } = await supabaseClient.auth.signInWithPassword({
+        email: $('email').value.trim(),
+        password: $('password').value
+      });
+
+      if (error) throw error;
+
+      $('password').value = '';
+      await updateSignedInState(data.session);
+
+    } catch (e) {
+      setStatus('loginStatus', 'Sign-in failed: ' + (e.message || String(e)));
+    } finally {
+      setBusy('loginBtn', false, 'Sign in');
+    }
+  });
+
+  $('createBtn').addEventListener('click', async () => {
+    if (!supabaseClient) {
+      return setStatus('createStatus', 'Connect to Supabase first.');
+    }
+
+    const name = $('orgName').value.trim();
+    const slug = $('orgSlug').value.trim().toLowerCase();
+    const type = $('orgType').value.trim();
+
+    if (!name || !slug || !type) {
+      setStatus('createStatus', 'Enter the organisation name, slug and type.');
+      return;
+    }
+
+    if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(slug)) {
+      setStatus('createStatus', 'Slug must be 3–63 characters, lowercase letters/numbers/hyphens, and start/end with a letter or number.');
+      return;
+    }
+
+    if (!confirm('Create this test organisation now? This will write real records to your Supabase database.')) {
+      return;
+    }
+
+    setBusy('createBtn', true);
+
+    try {
+      const { data: sessionData, error: sessionError } =
+        await supabaseClient.auth.getSession();
+
+      if (sessionError) throw sessionError;
+      if (!sessionData.session) throw new Error('Your session has expired. Sign in again.');
+
+      const { data, error } = await supabaseClient.rpc(
+        'theranura_create_organization',
+        {
+          p_name: name,
+          p_slug: slug,
+          p_organization_type: type,
+          p_description: $('orgDescription').value.trim() || null
+        }
+      );
+
+      if (error) throw error;
+
+      setStatus(
+        'createStatus',
+        'SUCCESS — organisation created.\nOrganisation UUID: ' + data +
+        '\nDo not click Create again. Share this UUID and the success message with ChatGPT.'
+      );
+
+      $('createBtn').disabled = true;
+
+    } catch (e) {
+      setStatus(
+        'createStatus',
+        'Creation failed: ' + (e.message || String(e)) +
+        '\nNo success is assumed. Share this error with ChatGPT.'
+      );
+
+    } finally {
+      if (!$('createBtn').disabled) {
+        setBusy('createBtn', false, 'Create test organisation');
+      }
+    }
+  });
+
+  $('signOutBtn').addEventListener('click', async () => {
+    if (!supabaseClient) return;
+
+    const { error } = await supabaseClient.auth.signOut();
+
+    if (error) {
+      setStatus('createStatus', 'Sign-out error: ' + error.message);
+    } else {
+      hide('createSection');
+      setStatus('loginStatus', 'Signed out.');
+    }
+  });
+})();
+</script>
+</body>
+</html>
